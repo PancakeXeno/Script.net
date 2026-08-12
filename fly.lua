@@ -1,7 +1,5 @@
 --============================================================
--- FLY GUI - SPACE EDITION
--- GUI + OPEN BUTTON TERPISAH
--- CLOSE GUI TIDAK MEMATIKAN FLY
+-- FLY GUI 
 --============================================================
 
 local Players = game:GetService("Players")

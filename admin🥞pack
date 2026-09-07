@@ -1,0 +1,137 @@
+local Players = game:GetService("Players")
+local TweenService = game:GetService("TweenService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+
+local screenGui = Instance.new("ScreenGui")
+local mainFrame = Instance.new("Frame")
+local textLabel = Instance.new("TextLabel")
+ 
+screenGui.Name = "IntroScriptGui"
+screenGui.Parent = playerGui
+screenGui.IgnoreGuiInset = true
+ 
+mainFrame.Size = UDim2.new(1, 0, 1, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+mainFrame.BackgroundTransparency = 1
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+ 
+textLabel.Size = UDim2.new(1, 0, 0, 150)
+textLabel.Position = UDim2.new(0, 0, 0.5, -75)
+textLabel.BackgroundTransparency = 1
+textLabel.TextColor3 = Color3.fromRGB(215, 55, 36) -- Poprawiono brakujący przecinek
+textLabel.TextStrokeTransparency = 0 
+textLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+textLabel.TextSize = 50
+textLabel.Font = Enum.Font.SourceSansBold
+textLabel.Text = "Made by PancakeXeno🥞"
+textLabel.TextTransparency = 1
+textLabel.Parent = mainFrame
+ 
+-- [[ LOGIKA ANIMACJI ]]
+ 
+task.wait(1) -- Tło po 1s
+mainFrame.Visible = true
+TweenService:Create(mainFrame, TweenInfo.new(0.5), {BackgroundTransparency = 0.3}):Play()
+ 
+task.wait(1) -- Napis po 2s od startu
+TweenService:Create(textLabel, TweenInfo.new(0.5), {TextTransparency = 0}):Play()
+ 
+task.wait(2) -- Napis znika po 2s wyświetlania
+TweenService:Create(textLabel, TweenInfo.new(0.5), {TextTransparency = 1}):Play()
+ 
+task.wait(2) -- Tło znika (łącznie 5s od pojawienia się)
+local fadeOut = TweenService:Create(mainFrame, TweenInfo.new(0.5), {BackgroundTransparency = 1})
+fadeOut:Play()
+ 
+fadeOut.Completed:Connect(function()
+    mainFrame.Visible = false
+    task.wait(1) -- Czeka 1s po wyłączeniu ekranu szarego
+    screenGui:Destroy()
+ 
+    -- [[ TWOJE MENU ADMIN PACK ]]
+    local AdminGui = Instance.new("ScreenGui")
+    local MainFrame = Instance.new("Frame")
+    local UIStroke = Instance.new("UIStroke")
+    local Title = Instance.new("TextLabel")
+    local ButtonContainer = Instance.new("Frame")
+    local UIListLayout = Instance.new("UIListLayout")
+ 
+    if playerGui:FindFirstChild("AdminPackClassic") then
+        playerGui.AdminPackClassic:Destroy()
+    end
+ 
+    AdminGui.Parent = playerGui
+    AdminGui.Name = "AdminPackClassic"
+    AdminGui.ResetOnSpawn = false
+ 
+    MainFrame.Name = "MainFrame"
+    MainFrame.Parent = AdminGui
+    MainFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    MainFrame.Position = UDim2.new(0.5, -100, 0.5, -125)
+    MainFrame.Size = UDim2.new(0, 220, 0, 240) -- Zmniejszono wysokość po usunięciu przycisku
+    MainFrame.Active = true
+    MainFrame.Draggable = true
+ 
+    -- [[ DODANO ZAOKRĄGLENIE DLA GUI ]]
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 12) -- Promień zaokrąglenia narożników
+    UICorner.Parent = MainFrame
+ 
+    UIStroke.Parent = MainFrame
+    UIStroke.Color = Color3.fromRGB(0, 120, 255)
+    UIStroke.Thickness = 3
+ 
+    Title.Parent = MainFrame
+    Title.Size = UDim2.new(1, 0, 0, 35)
+    Title.Text = "ADMIN PACK🥞"
+    Title.TextColor3 = Color3.fromRGB(0, 120, 255)
+    Title.Font = Enum.Font.SourceSansBold
+    Title.TextSize = 20
+    Title.BackgroundTransparency = 1
+ 
+    ButtonContainer.Parent = MainFrame
+    ButtonContainer.Position = UDim2.new(0.05, 0, 0.12, 0)
+    ButtonContainer.Size = UDim2.new(0.9, 0, 0.85, 0)
+    ButtonContainer.BackgroundTransparency = 1
+ 
+    UIListLayout.Parent = ButtonContainer
+    UIListLayout.Padding = UDim.new(0, 5)
+    UIListLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ 
+    local function CreateBtn(txt, code)
+        local btn = Instance.new("TextButton")
+        btn.Parent = ButtonContainer
+        btn.Size = UDim2.new(0.95, 0, 0, 32)
+        btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        btn.Text = txt
+        btn.Font = Enum.Font.SourceSans
+        btn.TextSize = 16
+        btn.BackgroundTransparency = 0.2
+        btn.BorderSizePixel = 0
+        btn.MouseButton1Click:Connect(function()
+            local success, err = pcall(function() loadstring(code)() end)
+            if not success then warn("Błąd skryptu: " .. err) end
+        end)
+    end
+ 
+    CreateBtn("Nameless Admin", [[loadstring(game:HttpGet("https://raw.githubusercontent.com/ltseverydayyou/Nameless-Admin/main/Source.lua"))()]])
+    CreateBtn("FE Invisible", [[loadstring(game:HttpGet('https://pastebin.com/raw/3Rnd9rHf'))()]])
+    CreateBtn("Inf Yield", [[loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()]])
+    CreateBtn("Fly HD Admin", [[loadstring(game:HttpGet("https://raw.githubusercontent.com/Dxnnyyyh148888/Fly-gui/refs/heads/main/Hhhhh"))()]])
+ 
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Parent = ButtonContainer
+    closeBtn.Size = UDim2.new(0.95, 0, 0, 32)
+    closeBtn.BackgroundColor3 = Color3.fromRGB(150, 0, 0)
+    closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    closeBtn.Text = "CLOSE GUI"
+    closeBtn.Font = Enum.Font.SourceSansBold
+    closeBtn.BorderSizePixel = 0
+    closeBtn.MouseButton1Click:Connect(function() AdminGui:Destroy() end)
+end)

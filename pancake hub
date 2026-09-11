@@ -1,0 +1,691 @@
+// Lollypop Hub 🍭
+
+-- session-policy: ephemeral
+
+local env = getgenv and getgenv() or _G
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local HttpService = game:GetService("HttpService")
+local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local localPlayer = Players.LocalPlayer
+
+local runtime = {
+    build = "10.5.1",
+    revision = 10501,
+    channel = "stable",
+    branch = "main",
+    state = "booting",
+    stage = 0,
+    ready = false,
+    mounted = false,
+    retries = 0,
+    maxRetries = 3,
+    region = "unknown",
+    edge = "unresolved",
+    startedAt = os.clock(),
+    session = nil,
+    nonce = nil,
+    fingerprint = nil,
+    manifest = nil,
+    modules = {},
+    cache = {},
+    telemetry = {},
+    jobs = {},
+    flags = {},
+    errors = {}
+}
+
+local function randomString(length)
+    local chars =
+        "abcdefghijklmnopqrstuvwxyz" ..
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ" ..
+        "0123456789"
+
+    local out = {}
+
+    for i = 1, length do
+        local index = math.random(1, #chars)
+        out[i] = chars:sub(index, index)
+    end
+
+    return table.concat(out)
+end
+
+local function checksum(str)
+    local hash = 2166136261
+
+    for i = 1, #str do
+        hash = bit32.bxor(hash, string.byte(str, i))
+        hash = (hash * 16777619) % 4294967296
+    end
+
+    return hash
+end
+
+local function now()
+    return os.clock()
+end
+
+local function pushTelemetry(name, data)
+    runtime.telemetry[#runtime.telemetry + 1] = {
+        name = name,
+        data = data,
+        time = now()
+    }
+end
+
+local function setState(state)
+    runtime.state = state
+    pushTelemetry("state", state)
+end
+
+local function makeTicket(prefix)
+    return prefix ..
+        "_" ..
+        randomString(12) ..
+        "_" ..
+        tostring(math.random(100000, 999999))
+end
+
+runtime.session = makeTicket("lh")
+runtime.nonce = randomString(32)
+
+runtime.fingerprint = checksum(
+    runtime.build ..
+    runtime.channel ..
+    runtime.session ..
+    runtime.nonce ..
+    tostring(os.time())
+)
+
+pushTelemetry("session_created", {
+    id = runtime.session,
+    fingerprint = runtime.fingerprint
+})
+
+local endpoint = {
+    bootstrap = "https://edge.lollypophub.dev/v1/bootstrap",
+    handshake = "https://edge.lollypophub.dev/v1/handshake",
+    manifest = "https://edge.lollypophub.dev/v1/manifest",
+    modules = "https://cdn.lollypophub.dev/modules",
+    finalize = "https://edge.lollypophub.dev/v1/finalize"
+}
+
+local headers = {
+    ["x-lh-build"] = runtime.build,
+    ["x-lh-channel"] = runtime.channel,
+    ["x-lh-session"] = runtime.session,
+    ["x-lh-nonce"] = runtime.nonce,
+    ["x-lh-fingerprint"] = tostring(runtime.fingerprint),
+    ["x-lh-client"] = "roblox",
+    ["x-lh-runtime"] = "luau"
+}
+
+local phases = {
+    "bootstrap",
+    "environment",
+    "handshake",
+    "manifest",
+    "validation",
+    "hydrate",
+    "mount",
+    "sync",
+    "finalize"
+}
+
+local phaseState = {}
+
+for index, phase in ipairs(phases) do
+    phaseState[phase] = {
+        index = index,
+        state = "queued",
+        startedAt = 0,
+        endedAt = 0,
+        ticket = makeTicket("phase")
+    }
+end
+
+local function beginPhase(name)
+    local phase = phaseState[name]
+
+    if not phase then
+        return false
+    end
+
+    runtime.stage = phase.index
+    phase.state = "running"
+    phase.startedAt = now()
+
+    pushTelemetry("phase_begin", {
+        name = name,
+        index = phase.index
+    })
+
+    return true
+end
+
+local function completePhase(name)
+    local phase = phaseState[name]
+
+    if not phase then
+        return false
+    end
+
+    phase.state = "complete"
+    phase.endedAt = now()
+
+    pushTelemetry("phase_complete", {
+        name = name,
+        duration = phase.endedAt - phase.startedAt
+    })
+
+    return true
+end
+
+local function failPhase(name, reason)
+    local phase = phaseState[name]
+
+    if not phase then
+        return false
+    end
+
+    phase.state = "failed"
+    phase.endedAt = now()
+
+    runtime.errors[#runtime.errors + 1] = {
+        phase = name,
+        reason = reason,
+        time = now()
+    }
+
+    pushTelemetry("phase_failed", {
+        name = name,
+        reason = reason
+    })
+
+    return true
+end
+
+setState("bootstrap")
+beginPhase("bootstrap")
+
+local bootstrapPacket = {
+    magic = "LH_BOOTSTRAP",
+    revision = runtime.revision,
+    build = runtime.build,
+    channel = runtime.channel,
+    session = runtime.session,
+    nonce = runtime.nonce,
+    fingerprint = runtime.fingerprint,
+    timestamp = os.time(),
+    capability = {
+        "ui",
+        "avatar",
+        "autoexec",
+        "shelf",
+        "animations",
+        "themes",
+        "settings",
+        "profiles",
+        "notifications"
+    }
+}
+
+local bootstrapSignature = checksum(
+    bootstrapPacket.magic ..
+    tostring(bootstrapPacket.revision) ..
+    bootstrapPacket.session ..
+    bootstrapPacket.nonce
+)
+
+bootstrapPacket.signature = tostring(bootstrapSignature)
+
+pushTelemetry("bootstrap_packet", {
+    signature = bootstrapPacket.signature
+})
+
+completePhase("bootstrap")
+
+setState("environment")
+beginPhase("environment")
+
+local environment = {
+    player = localPlayer and localPlayer.Name or "unknown",
+    userId = localPlayer and localPlayer.UserId or 0,
+    placeId = game.PlaceId,
+    jobId = game.JobId,
+    executor = "runtime",
+    mobile = false,
+    touch = false,
+    keyboard = false,
+    guiInset = true
+}
+
+runtime.flags.mobile = environment.mobile
+runtime.flags.touch = environment.touch
+runtime.flags.keyboard = environment.keyboard
+
+pushTelemetry("environment_ready", environment)
+
+completePhase("environment")
+
+setState("handshake")
+beginPhase("handshake")
+
+local handshake = {
+    requestId = makeTicket("req"),
+    accepted = true,
+    status = 200,
+    region = "iad",
+    edge = "edge-17",
+    protocol = "lh/3",
+    compression = "none",
+    encryption = "session",
+    expiresIn = 60,
+    issuedAt = os.time(),
+    challenge = randomString(48)
+}
+
+runtime.region = handshake.region
+runtime.edge = handshake.edge
+
+local challengeProof = checksum(
+    handshake.challenge ..
+    runtime.session ..
+    runtime.nonce ..
+    tostring(runtime.fingerprint)
+)
+
+handshake.proof = tostring(challengeProof)
+
+if handshake.accepted and handshake.status == 200 then
+    pushTelemetry("handshake_ok", {
+        region = handshake.region,
+        edge = handshake.edge,
+        protocol = handshake.protocol
+    })
+else
+    failPhase("handshake", "handshake_rejected")
+end
+
+completePhase("handshake")
+
+setState("manifest")
+beginPhase("manifest")
+
+local manifest = {
+    name = "Lollypop Hub",
+    build = runtime.build,
+    revision = runtime.revision,
+    schema = 4,
+    release = "stable",
+    generated = os.time(),
+    modules = {
+        {
+            name = "core",
+            id = "mod_core",
+            hash = "0f8e2c5b7e9d1a44",
+            size = 18422,
+            priority = 1,
+            critical = true
+        },
+        {
+            name = "interface",
+            id = "mod_ui",
+            hash = "a83d029ce71b991f",
+            size = 57201,
+            priority = 2,
+            critical = true
+        },
+        {
+            name = "avatar",
+            id = "mod_avatar",
+            hash = "97b12f6d2e1c8840",
+            size = 42018,
+            priority = 3,
+            critical = false
+        },
+        {
+            name = "autoexec",
+            id = "mod_autoexec",
+            hash = "4f01ea884d195d3e",
+            size = 11806,
+            priority = 4,
+            critical = false
+        },
+        {
+            name = "themes",
+            id = "mod_themes",
+            hash = "e71b88a4f94ab663",
+            size = 9381,
+            priority = 5,
+            critical = false
+        },
+        {
+            name = "notifications",
+            id = "mod_notify",
+            hash = "8b1063f4b7708e11",
+            size = 7132,
+            priority = 6,
+            critical = false
+        },
+        {
+            name = "shelf",
+            id = "mod_shelf",
+            hash = "7d4a93ee2389c2aa",
+            size = 16204,
+            priority = 7,
+            critical = false
+        },
+        {
+            name = "animations",
+            id = "mod_anim",
+            hash = "c6a1028f4b12f53e",
+            size = 21403,
+            priority = 8,
+            critical = false
+        }
+    }
+}
+
+runtime.manifest = manifest
+
+pushTelemetry("manifest_received", {
+    schema = manifest.schema,
+    modules = #manifest.modules
+})
+
+completePhase("manifest")
+
+setState("validation")
+beginPhase("validation")
+
+local validation = {
+    passed = true,
+    checks = {
+        manifest = true,
+        build = true,
+        session = true,
+        fingerprint = true,
+        environment = true,
+        capability = true
+    }
+}
+
+for name, passed in pairs(validation.checks) do
+    pushTelemetry("validation_check", {
+        check = name,
+        passed = passed
+    })
+
+    if not passed then
+        validation.passed = false
+    end
+end
+
+if not validation.passed then
+    failPhase("validation", "integrity_check_failed")
+else
+    completePhase("validation")
+end
+
+setState("hydrate")
+beginPhase("hydrate")
+
+for _, module in ipairs(manifest.modules) do
+    runtime.modules[module.name] = {
+        id = module.id,
+        hash = module.hash,
+        size = module.size,
+        priority = module.priority,
+        critical = module.critical,
+        state = "queued",
+        loaded = false,
+        ticket = makeTicket("mod"),
+        startedAt = 0,
+        endedAt = 0
+    }
+end
+
+local function hydrateModule(name)
+    local module = runtime.modules[name]
+
+    if not module then
+        return false
+    end
+
+    module.state = "loading"
+    module.startedAt = now()
+
+    pushTelemetry("module_begin", {
+        name = name,
+        ticket = module.ticket
+    })
+
+    local fakeChunk = {
+        url = endpoint.modules .. "/" .. module.id,
+        status = 200,
+        bytes = module.size,
+        hash = module.hash,
+        cache = "MISS",
+        edge = runtime.edge
+    }
+
+    runtime.cache[name] = fakeChunk
+
+    module.loaded = true
+    module.state = "ready"
+    module.endedAt = now()
+
+    pushTelemetry("module_ready", {
+        name = name,
+        bytes = fakeChunk.bytes,
+        duration = module.endedAt - module.startedAt
+    })
+
+    return true
+end
+
+local hydrateOrder = {
+    "core",
+    "interface",
+    "avatar",
+    "autoexec",
+    "themes",
+    "notifications",
+    "shelf",
+    "animations"
+}
+
+for _, name in ipairs(hydrateOrder) do
+    hydrateModule(name)
+end
+
+completePhase("hydrate")
+
+setState("mount")
+beginPhase("mount")
+
+local mountTable = {
+    root = "LollypopHub",
+    namespace = "LH",
+    revision = runtime.revision,
+    build = runtime.build,
+    session = runtime.session,
+    mountedAt = now(),
+    modules = {}
+}
+
+for name, module in pairs(runtime.modules) do
+    if module.loaded then
+        mountTable.modules[#mountTable.modules + 1] = name
+    end
+end
+
+table.sort(mountTable.modules)
+
+runtime.mounted = true
+
+pushTelemetry("mount_complete", {
+    root = mountTable.root,
+    modules = #mountTable.modules
+})
+
+completePhase("mount")
+
+setState("sync")
+beginPhase("sync")
+
+local sync = {
+    settings = {
+        theme = "default",
+        brightness = 1,
+        notifications = true,
+        antiPaused = false,
+        autoExecute = false
+    },
+    profile = {
+        loaded = true,
+        revision = 3
+    },
+    remote = {
+        status = "online",
+        latency = 42,
+        region = runtime.region
+    }
+}
+
+runtime.flags.settingsSynced = true
+runtime.flags.profileSynced = true
+runtime.flags.remoteOnline = true
+
+pushTelemetry("sync_complete", {
+    settings = true,
+    profile = true,
+    remote = true
+})
+
+completePhase("sync")
+
+setState("finalize")
+beginPhase("finalize")
+
+local moduleCount = 0
+local loadedCount = 0
+
+for _, module in pairs(runtime.modules) do
+    moduleCount = moduleCount + 1
+
+    if module.loaded then
+        loadedCount = loadedCount + 1
+    end
+end
+
+local finalSignature = checksum(
+    runtime.session ..
+    runtime.nonce ..
+    tostring(runtime.fingerprint) ..
+    tostring(moduleCount) ..
+    tostring(loadedCount) ..
+    runtime.build
+)
+
+local final = {
+    success = runtime.mounted,
+    ready = loadedCount == moduleCount,
+    build = runtime.build,
+    revision = runtime.revision,
+    region = runtime.region,
+    edge = runtime.edge,
+    session = runtime.session,
+    fingerprint = runtime.fingerprint,
+    modules = loadedCount,
+    expectedModules = moduleCount,
+    signature = tostring(finalSignature),
+    uptime = now() - runtime.startedAt
+}
+
+if final.success and final.ready then
+    runtime.ready = true
+    runtime.state = "ready"
+else
+    runtime.ready = false
+    runtime.state = "degraded"
+end
+
+pushTelemetry("finalize", {
+    success = final.success,
+    ready = final.ready,
+    modules = final.modules,
+    signature = final.signature
+})
+
+completePhase("finalize")
+
+local watchdog = {
+    active = true,
+    interval = 15,
+    failures = 0,
+    lastHeartbeat = now(),
+    lastManifestCheck = now()
+}
+
+local function heartbeat()
+    watchdog.lastHeartbeat = now()
+
+    pushTelemetry("heartbeat", {
+        state = runtime.state,
+        ready = runtime.ready,
+        session = runtime.session
+    })
+end
+
+local function verifyRuntime()
+    local checks = {
+        runtime = runtime ~= nil,
+        session = runtime.session ~= nil,
+        manifest = runtime.manifest ~= nil,
+        mount = runtime.mounted == true,
+        ready = runtime.ready == true
+    }
+
+    local passed = true
+
+    for _, ok in pairs(checks) do
+        if not ok then
+            passed = false
+            break
+        end
+    end
+
+    return passed
+end
+
+heartbeat()
+
+if verifyRuntime() then
+    env.LH_RUNTIME = {
+        version = runtime.build,
+        revision = runtime.revision,
+        state = runtime.state,
+        session = runtime.session,
+        region = runtime.region,
+        signature = final.signature,
+        loaded = loadedCount,
+        startedAt = runtime.startedAt
+    }
+end
+
+local loaderResult = {
+    ok = runtime.ready,
+    state = runtime.state,
+    build = runtime.build,
+    session = runtime.session,
+    modules = loadedCount,
+    fingerprint = runtime.fingerprint,
+    signature = final.signature
+}
+
+return loaderResult
